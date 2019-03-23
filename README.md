@@ -1,1 +1,1 @@
-# GestureReconitio
+# GestureReconition
