@@ -4,6 +4,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <math.h> 
 const int MAX_FEATURES = 500;
 
 using namespace std;
@@ -16,7 +17,7 @@ void VidCapture(Mat & bw)
 	if (!cam.isOpened()) {
 		cout << "ERROR not opened " << endl;
 	}
-	Mat src, kernel,imgLaplacian,sharp,imgResult, frame;
+	Mat src, kernel, imgLaplacian, sharp, imgResult, frame;
 	while (1)
 	{
 		bool b = cam.read(frame);
@@ -70,6 +71,7 @@ void VidCapture(Mat & bw)
 	}
 }
 
+
 void ReadingData(vector<cv::String>& fn, vector<cv::Mat>& data)
 {
 	cv::String path("edit/*.jpg"); //select only jpg
@@ -82,13 +84,11 @@ void ReadingData(vector<cv::String>& fn, vector<cv::Mat>& data)
 	}
 }
 
-void compare(Mat &im1, Mat &im2, Mat &imMatches, double& pers_out)
+void compare(Mat &im1, Mat &im2, Mat &imMatches, unsigned _int64 & pers_out)
 {
 
 	// Convert images to grayscale
-	Mat im1Gray=im1, im2Gray=im2;
-	//cvtColor(im1, im1Gray, COLOR_BGR2GRAY);
-	//cvtColor(im2, im2Gray, COLOR_BGR2GRAY);
+	Mat im1Gray = im1, im2Gray = im2;
 
 	// Variables to store keypoints and descriptors
 	std::vector<KeyPoint> keypoints1, keypoints2;
@@ -99,63 +99,77 @@ void compare(Mat &im1, Mat &im2, Mat &imMatches, double& pers_out)
 	orb->detectAndCompute(im1Gray, Mat(), keypoints1, descriptors1);
 	orb->detectAndCompute(im2Gray, Mat(), keypoints2, descriptors2);
 	//std::cout << "keypoints (" << keypoints1.size() << " , " << keypoints2.size() << std::endl;
-
-	// Match features.
-	std::vector<DMatch> matches;
+	vector< vector<DMatch> > matches;
 	Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create("BruteForce-Hamming");
-	matcher->match(descriptors1, descriptors2, matches, Mat());
-	const double all = (double)matches.size();
-	const double maxDist = matches[0].distance + 5;
-	std::vector<DMatch> good_matches;
-	for (size_t i = 0; i < matches.size(); i++)
+	matcher->knnMatch(descriptors1, descriptors2, matches, 30);
+
+	double tresholdDist = 8;//median - 25,
+	double tresholdangel = 10;
+	const double PI = 3.14159265;
+	vector< DMatch > good_matches;
+	good_matches.reserve(matches.size());
+	for (size_t i = 0; i < matches.size(); ++i)
 	{
-		if (matches[i].distance < maxDist)
+		for (size_t j = 0; j < matches[i].size(); j++)
 		{
-			good_matches.push_back(matches[i]);
+			//calculate local distance for each possible match
+			Point2f from = keypoints1[matches[i][j].queryIdx].pt;
+			Point2f to = keypoints2[matches[i][j].trainIdx].pt;
+			double dist = sqrt((from.x - to.x) * (from.x - to.x) + (from.y - to.y) * (from.y - to.y));
+			double angel = atan2((from.y - to.y), (from.x - to.x)) * 180 / PI;
+			//std::cout << dist<< std::endl;
+			if (angel < tresholdangel && angel > -1 * tresholdangel && dist<tresholdDist)
+			{
+				good_matches.push_back(matches[i][j]);
+				j = matches[i].size();
+			}
 		}
+
+
+		const double all = (double)matches.size();
+		pers_out = (unsigned _int64)(100 * good_matches.size() / all + 0.5);
+		drawMatches(im1, keypoints1, im2, keypoints2, good_matches, imMatches);
+
 	}
-
-
-	pers_out = 100*good_matches.size() / all;
-	//cout << "GOOD_MATCH_PERCENT = " << good_matches.size() << "_" << pers_out << std::endl;
-
-	// Draw top matches
-	//Mat imMatches;
-	drawMatches(im1, keypoints1, im2, keypoints2, good_matches, imMatches);
-
 }
 int main()
 {
 	//Mat test;
 	//VidCapture(test);
 	//imshow("Median Image", test);
-	Mat test = imread("IMG.jpg");
+	Mat test = imread("edit/ok.jpg");
 	vector<cv::String> fn;
 	vector<cv::Mat> data;
 	ReadingData(fn, data);
 
 	Mat imReg;
-	double h;
-	// Align images
+	unsigned _int64 h;
 	cout << "Matching images ..." << endl;
 
-	double max = 0;
-	int needed_img = 0;
-
-	for (int i = 0; i < data.size(); ++i)
+	unsigned _int64 max = 0;
+	vector<size_t> elems;
+	for (size_t i = 0; i < data.size(); ++i)
 	{
 		compare(data[i], test, imReg, h);
+
+		imwrite("aligned.jpg", imReg);
 		std::cout << h << std::endl;
 		if (h > max)
 		{
-			needed_img = i;
+			elems.clear();
 			max = h;
+			//imwrite("align.jpg", imReg);
+			elems.push_back(i);
+
+		}
+		else if (h == max) {
+			elems.push_back(i);
 		}
 
 	}
 
-	cout << fn[needed_img]<<"_"<<max<< "_" << needed_img << endl;
-	imshow(fn[needed_img], data[needed_img]);
+	for (size_t e : elems)
+		imshow(fn[e], data[e]);
 
 
 	waitKey(0);
